@@ -1,0 +1,4 @@
+github.com/DatDomrachev/go-loyalty-system v0.0.0-20220210230513-14656bdab2ce h1:atGDCJ+hYXzAmLNLbMztEFB6DSh9O8WEpSXGsS96Mb0=
+github.com/caarlos0/env v3.5.0+incompatible h1:Yy0UN8o9Wtr/jGHZDpCBLpNrzcFLLM2yixi/rBrKyJs=
+github.com/caarlos0/env/v6 v6.9.1 h1:zOkkjM0F6ltnQ5eBX6IPI41UP/KDGEK7rRPwGCNos8k=
+github.com/caarlos0/env/v6 v6.9.1/go.mod h1:hvp/ryKXKipEkcuYjs9mI4bBCg+UI0Yhgm5Zu0ddvwc=
