@@ -398,6 +398,9 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     }
 
     res, err := http.DefaultClient.Do(req)
+    
+    defer res.Body.Close()
+
     if err != nil {
         log.Printf("%v\n", err)
         return processingOrder, err
