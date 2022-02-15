@@ -97,10 +97,9 @@ func (s *srv) Run(ctx context.Context) (err error) {
 func (s *srv) ConfigureRouter() *chi.Mux {
 	router := chi.NewRouter()
 	
+	router.Use(middleware.Logger)
+	router.Use(GzipHandle)
 	router.Group(func(router chi.Router) {
-		router.Use(middleware.Logger)
-		router.Use(GzipHandle)
-		
 		router.Post("/api/user/register", func(rw http.ResponseWriter, r *http.Request) {
 		 	handlers.RegisterHandler(s.repo)(rw, r)
 		})
@@ -111,8 +110,6 @@ func (s *srv) ConfigureRouter() *chi.Mux {
 	})
 
 	router.Group(func(router chi.Router) {
-		router.Use(middleware.Logger)
-		router.Use(GzipHandle)
 		router.Use(CheckUser)
 
 		router.Get("/api/user/balance", func(rw http.ResponseWriter, r *http.Request) {
@@ -192,30 +189,28 @@ func CheckUser(next http.Handler) http.Handler {
 
 		cookie, err := r.Cookie("user_token")
 
-		if err == nil {
-
-			userKey := cookie.Value
-
-			data, err := hex.DecodeString(userKey)
-
-			if err != nil {
-				log.Fatalf("CookieRead error:%+v", err)
-			}
-
-			h := hmac.New(sha256.New, auth.SecretKey)
-			h.Write(data[:8])
-			sign := h.Sum(nil)
-
-			if !hmac.Equal(sign, data[8:]) {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-		} else {
+		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}	
+
+		userKey := cookie.Value
+
+		data, err := hex.DecodeString(userKey)
+
+		if err != nil {
+			log.Fatalf("CookieRead error:%+v", err)
 		}
 
-		
+		h := hmac.New(sha256.New, auth.SecretKey)
+		h.Write(data[:8])
+		sign := h.Sum(nil)
+
+		if !hmac.Equal(sign, data[8:]) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
 
 		ctx := context.WithValue(r.Context(), contextKey("user_token"), cookie.Value)
 

@@ -217,6 +217,7 @@ func OrderListHandler(repo repository.Repositorier, userToken string) func(w htt
 		}
 
 		if len(items) == 0 {
+			w.Header().Set("content-type", "application/json")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
