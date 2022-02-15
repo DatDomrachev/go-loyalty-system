@@ -36,6 +36,7 @@ type WorkerPooler interface {
 	GenerateFrom(jobsBulk Job)
 	Results() <-chan Result
 	BroadcastDone(flag bool)
+	Done() <- chan bool
 }
 
 func New(wcount int) (*WorkerPool) {

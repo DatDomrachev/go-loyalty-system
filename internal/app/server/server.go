@@ -7,6 +7,7 @@ import (
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/handlers"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/repository"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/wpool"
+	"github.com/DatDomrachev/go-loyalty-system/internal/app/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"io"
@@ -15,7 +16,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 )
+
+type contextKey string
 
 type Server interface {
 	configureRouter() *chi.Mux
@@ -32,8 +38,6 @@ type gzipWriter struct {
 	http.ResponseWriter
 	Writer io.Writer
 }
-
-type contextKey string
 
 func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
@@ -93,9 +97,6 @@ func (s *srv) Run(ctx context.Context) (err error) {
 func (s *srv) ConfigureRouter() *chi.Mux {
 	router := chi.NewRouter()
 	
-	
-
-	
 	router.Group(func(router chi.Router) {
 		router.Use(middleware.Logger)
 		router.Use(GzipHandle)
@@ -107,12 +108,12 @@ func (s *srv) ConfigureRouter() *chi.Mux {
 		router.Post("/api/user/login", func(rw http.ResponseWriter, r *http.Request) {
 		 	handlers.LoginHandler(s.repo)(rw, r)
 		})
-	}
+	})
 
 	router.Group(func(router chi.Router) {
 		router.Use(middleware.Logger)
 		router.Use(GzipHandle)
-		router.Use(auth.CheckUser)
+		router.Use(CheckUser)
 
 		router.Get("/api/user/balance", func(rw http.ResponseWriter, r *http.Request) {
 		 	u := r.Context().Value(contextKey("user_token")).(string)
@@ -121,7 +122,7 @@ func (s *srv) ConfigureRouter() *chi.Mux {
 
 		router.Get("/api/user/balance/withdrawals", func(rw http.ResponseWriter, r *http.Request) {
 		 	u := r.Context().Value(contextKey("user_token")).(string)
-		 	handlers.WithdarawListHandler(s.repo, u)(rw, r)
+		 	handlers.WithdrawListHandler(s.repo, u)(rw, r)
 		})
 
 		router.Get("/api/user/orders", func(rw http.ResponseWriter, r *http.Request) {
@@ -136,10 +137,10 @@ func (s *srv) ConfigureRouter() *chi.Mux {
 
 		router.Post("/api/user/orders", func(rw http.ResponseWriter, r *http.Request) {
 		 	u := r.Context().Value(contextKey("user_token")).(string)
-		 	handlers.OrderHandler(s.repo, s.AccrualURL, u)(rw, r)
+		 	handlers.OrderHandler(s.repo, s.wp, s.AccrualURL, u)(rw, r)
 		})
 
-	}
+	})
 		
 	return router
 }
@@ -181,5 +182,43 @@ func GzipHandle(next http.Handler) http.Handler {
 
 		w.Header().Set("Content-Encoding", "gzip")
 		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+	})
+}
+
+
+func CheckUser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		
+
+		cookie, err := r.Cookie("user_token")
+
+		if err == nil {
+
+			userKey := cookie.Value
+
+			data, err := hex.DecodeString(userKey)
+
+			if err != nil {
+				log.Fatalf("CookieRead error:%+v", err)
+			}
+
+			h := hmac.New(sha256.New, auth.SecretKey)
+			h.Write(data[:8])
+			sign := h.Sum(nil)
+
+			if !hmac.Equal(sign, data[8:]) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+
+		
+
+		ctx := context.WithValue(r.Context(), contextKey("user_token"), cookie.Value)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

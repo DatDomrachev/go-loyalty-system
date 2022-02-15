@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/hex"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/repository"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/wpool"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/auth"
@@ -14,10 +15,13 @@ import (
 	"fmt"
 	"time"
 	"crypto/md5"
+	"log"
 )
 
 type JobData struct {
-	WhereIn   string
+	Repo 	repository.Repositorier
+	OrderID string
+	AccrualURL string
 	UserToken string
 }
 
@@ -38,7 +42,15 @@ func (ae *ArgsError) Error() string {
 	return fmt.Sprintf("%v", ae.Message)
 }
 
-func validateLuhnOrderNumber(number string) bool {
+func (br *BadResponse) Error() string {
+	return fmt.Sprintf("%v", br.Message)
+}
+
+func (tmr *TooManyRequests) Error() string {
+	return fmt.Sprintf("%v", tmr.Message)
+}
+
+func validateLuhnOrderNumber(num string) bool {
 	idx := len(num) - 1
 	total := 0
 	pos := 0
@@ -78,8 +90,8 @@ func RegisterHandler(repo repository.Repositorier) func(w http.ResponseWriter, r
 			return
 		}
 
-		password:= md5.Sum([]byte(loginData.password))
-		userID, err := repo.SaveUser(r.Context(), loginData.login, password)
+		password:= md5.Sum([]byte(loginData.Password))
+		userID, err := repo.SaveUser(r.Context(), loginData.Login, hex.EncodeToString(password[:]))
 
 		if err != nil {
 			var ce *repository.ConflictError
@@ -94,8 +106,8 @@ func RegisterHandler(repo repository.Repositorier) func(w http.ResponseWriter, r
 		} 
 
 
-		token := auth.GetToken(userId);
-		token, err := repo.SaveUserToken(r.Context(), userId, token)
+		token := auth.GetToken(userID);
+		token, err = repo.SaveUserToken(r.Context(), userID, token)
 		
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -105,7 +117,7 @@ func RegisterHandler(repo repository.Repositorier) func(w http.ResponseWriter, r
 		}
 
 		
-		cookie = &http.Cookie {
+		cookie := &http.Cookie {
 			Name:  "user_token",
 			Value: token,
 		}
@@ -125,8 +137,8 @@ func LoginHandler(repo repository.Repositorier) func(w http.ResponseWriter, r *h
 			return
 		}
 
-		password:= md5.Sum([]byte(loginData.password))
-		userToken, err := repo.FindUser(r.Context(), loginData.login, password)
+		password:= md5.Sum([]byte(loginData.Password))
+		userToken, err := repo.FindUser(r.Context(), loginData.Login, hex.EncodeToString(password[:]))
 
 		if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -136,7 +148,7 @@ func LoginHandler(repo repository.Repositorier) func(w http.ResponseWriter, r *h
 		}
 
 		
-		cookie = &http.Cookie {
+		cookie := &http.Cookie {
 			Name:  "user_token",
 			Value: userToken,
 		}
@@ -147,7 +159,7 @@ func LoginHandler(repo repository.Repositorier) func(w http.ResponseWriter, r *h
 
 func GetBalanceHandler(repo repository.Repositorier, userToken string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var result repository.Balance
+		var result *repository.Balance
 
 		result, err := repo.GetBalance(r.Context(), userToken)
 
@@ -239,13 +251,13 @@ func WithdrawHandler(repo repository.Repositorier, userToken string) func(w http
 			return
 		}
 
-		check := validateLuhnOrderNumber(withdraw.OrderId)
-		if(chek == false) {
+		check := validateLuhnOrderNumber(withdraw.OrderID)
+		if(check == false) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
 
-		err := repo.SaveWithdraw(r.Context(), withdraw.OrderId, withdraw.Points, userToken)
+		err := repo.SaveWithdraw(r.Context(), withdraw.OrderID, withdraw.Points, userToken)
 
 		if err != nil {
 			var lpe *repository.LowPointsError
@@ -259,19 +271,8 @@ func WithdrawHandler(repo repository.Repositorier, userToken string) func(w http
 			}
 		} else {
 			w.Header().Set("content-type", "application/json")
-			w.WriteHeader(http.StatusOk)
+			w.WriteHeader(http.StatusOK)
 		}
-
-
-		newResult := repository.Result{ShortURL: AccrualURL + "/" + result}
-
-		buf := bytes.NewBuffer([]byte{})
-		if err := json.NewEncoder(buf).Encode(newResult); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(buf.Bytes())
 	}
 }
 
@@ -295,14 +296,14 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 		number := string(body)
 
 		check := validateLuhnOrderNumber(number)
-		if(chek == false) {
+		if(check == false) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
 
 		accrual, err := repo.FindOrderAccrual(r.Context(), number)
 		
-		if accrual != nil {
+		if err == nil {
 			if(accrual.UserToken == userToken) {
 				w.WriteHeader(http.StatusOK)
 				return
@@ -314,12 +315,12 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 
 			
 		w.WriteHeader(http.StatusAccepted)
-		go ProcessOrder(repo, wp, AccrualURL, userToken, OrderId)
+		go ProcessOrder(repo, wp, AccrualURL, userToken, number)
 		return
 	}
 }
 		
-func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, orderId string) {
+func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, OrderID string) {
 		 
 	execFn := func(ctx context.Context, args interface{}) (interface{}, error) {		
 		argVal, ok := args.(JobData)
@@ -330,7 +331,7 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 			}
 		}
 
-		return CheckOrder(ctx, argVal.Repo, argVal.OrderId, argVal.UserToken, argVal.AccrualURL)
+		return CheckOrder(ctx, argVal.Repo, argVal.OrderID, argVal.UserToken, argVal.AccrualURL)
 	}
 
 	for {
@@ -340,35 +341,29 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 					continue
 				}	
 
-			val, err := r.Value
-			if err != nil {
-				log.Printf("error %v;", err)
-				var e *TooManyRequests
-
-				if errors.As(err, &e) {
-					time.Sleep(60 * time.Second)
-				}
-			} else {
-				if val.status == "PROCESSED" {
-					go wp.BroadcastDone(true)
-				}	
-			}
+			val := r.Value.(repository.ProcessingOrder)
+			
+			if val.Status == "PROCESSED" {
+				//go wp.BroadcastDone(true)
+				break
+			}	
+			
 			
 
 			time := time.Now().Unix()
 
 			job := wpool.Job {
 				Descriptor: wpool.JobDescriptor{
-					ID:       wpool.JobID(fmt.Sprintf("%v_%v", number, time)),
+					ID:       wpool.JobID(fmt.Sprintf("%v_%v", OrderID, time)),
 					JType:    "PROCESSING",
 					Metadata: nil,
 				},
 				ExecFn: execFn,
 				Args:   JobData{
 					Repo: repo,
-					OrderId:   number,
+					OrderID:   OrderID,
 					UserToken: userToken,
-					AccrualUrl: accrualUrl
+					AccrualURL: accrualURL,
 				},
 			}
 
@@ -386,47 +381,51 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 }
 
 
-func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID string, userToken string, endpoint string) (*repository.ProcessingOrder, error) {
-	url := endpoint+"/api/orders/"+orderId
+func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID string, userToken string, endpoint string) (repository.ProcessingOrder, error) {
+	
+	var processingOrder repository.ProcessingOrder
 
-	req, err := http.NewRequest("GET", url)
+	url := endpoint+"/api/orders/"+orderID
+	
+	payload := strings.NewReader("")
+
+	req, err := http.NewRequest("GET", url, payload)
     if err != nil {
         log.Printf("%v\n", err)
-        return nil, err
+        return processingOrder, err
     }
 
     res, err := http.DefaultClient.Do(req)
     if err != nil {
         log.Printf("%v\n", err)
-        return nil, err
+        return processingOrder, err
     }
 
-    if res.Header.StatusCode == http.StatusInternalServerError {
+    if res.StatusCode == http.StatusInternalServerError {
     	log.Printf("BadResponse %v\n", orderID)
-    	return nil, &BadResponse{
+    	return processingOrder, &BadResponse{
     		Message: "BadResponse on order"+ orderID,
     	}
     }
 
-    if res.Header.StatusCode == StatusTooManyRequests {
+    if res.StatusCode == http.StatusTooManyRequests {
     	log.Printf("TooManyRequest %v\n", orderID)
-    	return nil, &TooManyRequests {
+    	time.Sleep(60 * time.Second)
+    	return processingOrder, &TooManyRequests {
     		Message: "TooManyRequest on order" + orderID,
     	}
     }
 
 
-    var processingOrder repository.ProcessingOrder
-
-    if err := json.NewDecoder(res.Body).Decode(&ProcessingOrder); err != nil {
+    if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
 		log.Printf("%v\n", err)
-		return nil, err
+		return processingOrder, err
 	}
 
 	err = repo.UpdateOrder(ctx, processingOrder.OrderID, processingOrder.Status, processingOrder.Accrual, userToken);
 	if err != nil {
         log.Printf("%v\n", err)
-        return nil, err
+        return processingOrder, err
     }
 
 	return processingOrder, nil
