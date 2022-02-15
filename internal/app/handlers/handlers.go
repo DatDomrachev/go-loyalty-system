@@ -81,7 +81,7 @@ func validateLuhnOrderNumber(num string) bool {
 }
 
 func RegisterHandler(repo repository.Repositorier) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request)  {
 
 		var loginData repository.LoginData
 
@@ -113,16 +113,13 @@ func RegisterHandler(repo repository.Repositorier) func(w http.ResponseWriter, r
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		} else {
+				cookie := &http.Cookie {
+				Name:  "user_token",
+				Value: token,
+			}
+			http.SetCookie(w, cookie)
 			w.WriteHeader(http.StatusOK)
 		}
-
-		
-		cookie := &http.Cookie {
-			Name:  "user_token",
-			Value: token,
-		}
-		http.SetCookie(w, cookie)
-		
 	}
 }
 
@@ -144,16 +141,13 @@ func LoginHandler(repo repository.Repositorier) func(w http.ResponseWriter, r *h
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 		} else {
+			cookie := &http.Cookie {
+				Name:  "user_token",
+				Value: userToken,
+			}
+			http.SetCookie(w, cookie)
 			w.WriteHeader(http.StatusOK)
 		}
-
-		
-		cookie := &http.Cookie {
-			Name:  "user_token",
-			Value: userToken,
-		}
-		http.SetCookie(w, cookie)
-		
 	}
 }
 
