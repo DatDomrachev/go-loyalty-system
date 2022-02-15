@@ -167,38 +167,44 @@ func New(dataBaseURL string) (*Repo, error) {
 		// 	log.Fatalf("failed executing migrations: %v\n", err)
 		// }
 
-		_, err = db.Exec("CREATE TABLE if not exists user (id BIGSERIAL primary key, login text, password text, user_token text, balance float default 0, withdrawn default 0)")
+		_, err = db.Exec("CREATE TABLE if not exists users (id BIGSERIAL primary key, login text, password text, user_token text, balance float default 0.0, withdrawn float default 0.0)")
 
 		if err != nil {
 			return nil, err
 		}
 
 		
-		_, err = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS unique_login_constrain ON user (login)")
+		_, err = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS unique_login_constrain ON users(login)")
+
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS unique_token_constrain ON users(user_token)")
 
 		if err != nil {
 			return nil, err
 		}
 
 
-		_, err = db.Exec("CREATE TABLE if not exists transaction (id BIGSERIAL primary key, uset_token string, order_id string, type integer, status integer, points float default 0.0, uploaded_at TIMESTAMPTZ default now(), processed_at TIMESTAMPTZ, FOREIGN KEY (user_token) REFERENCES user (user_token))")
+		_, err = db.Exec("CREATE TABLE if not exists transactions (id BIGSERIAL primary key, user_token text, order_id text, type integer, status integer, points float default 0.0, uploaded_at TIMESTAMPTZ default now(), processed_at TIMESTAMPTZ, FOREIGN KEY (user_token) REFERENCES users (user_token))")
 
 		if err != nil {
 			return nil, err
 		}
 
 
-		insertTransaction, err = db.Prepare("INSERT INTO transaction (user_token, order_id, type, status, points, processed_at) VALUES($1,$2,$3,$4,$5,$6)") 
+		insertTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points, processed_at) VALUES($1,$2,$3,$4,$5,$6)") 
 		if err != nil {
 			return nil, err
 		}
 
-		updateTransaction, err = db.Prepare("UPDATE transaction set status = $1, points = $2, processed_at = $3 where order_id = $4 and type = $5") 
+		updateTransaction, err = db.Prepare("UPDATE transactions set status = $1, points = $2, processed_at = $3 where order_id = $4 and type = $5") 
 		if err != nil {
 			return nil, err
 		}
 
-		updateBalance, err = db.Prepare("UPDATE user set balance = $1, withdrawn = $2 where user_token = $3") 
+		updateBalance, err = db.Prepare("UPDATE users set balance = $1, withdrawn = $2 where user_token = $3") 
 		if err != nil {
 			return nil, err
 		}
@@ -244,7 +250,7 @@ func (r *Repo) SaveUser(ctx context.Context, login string, password string) (int
 
 
 func (r *Repo) SaveUserToken(ctx context.Context, id int, userToken string) (string, error) {
-	_, err := r.DB.conn.ExecContext(ctx, "UPDATE user SET user_token = $1 WHERE id = $2", userToken, id)
+	_, err := r.DB.conn.ExecContext(ctx, "UPDATE users SET user_token = $1 WHERE id = $2", userToken, id)
 
 	if err != nil {
 		return "", err
@@ -257,7 +263,7 @@ func (r *Repo) SaveUserToken(ctx context.Context, id int, userToken string) (str
 
 func (r *Repo) FindUser(ctx context.Context, login string, password string) (string, error) {
 	token := ""
-	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token from user WHERE login = $1 and password = $2", login, password)
+	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token from users WHERE login = $1 and password = $2", login, password)
 	err := row.Scan(&token)
 	if err != nil {
 		log.Print(err.Error())
@@ -270,7 +276,7 @@ func (r *Repo) FindUser(ctx context.Context, login string, password string) (str
 func (r *Repo) GetBalance(ctx context.Context, userToken string) (*Balance, error) {
 	balance := 0.0
 	withdrawn := 0.0
-	row := r.DB.conn.QueryRowContext(ctx, "SELECT balance, withdrawn from user WHERE user_token = $1", userToken)
+	row := r.DB.conn.QueryRowContext(ctx, "SELECT balance, withdrawn from users WHERE user_token = $1", userToken)
 	err := row.Scan(&balance, &withdrawn)
 	if err != nil {
 		log.Print(err.Error())
@@ -293,7 +299,7 @@ func (r *Repo) GetWithdrawals(ctx context.Context, userToken string) ([]Processe
 
 	var myWithdraws []ProcessedWithdraw
 
-	rows, err := r.DB.conn.QueryContext(ctx, "Select order_id, points, processed_at from transaction WHERE user_token = $1 AND type = $2 AND status = $3 ORDER BY processed_at", userToken, TypeWithdraw, StatusProcessed)
+	rows, err := r.DB.conn.QueryContext(ctx, "Select order_id, points, processed_at from transactions WHERE user_token = $1 AND type = $2 AND status = $3 ORDER BY processed_at", userToken, TypeWithdraw, StatusProcessed)
 
 	if err != nil {
 		return myWithdraws, err
@@ -326,7 +332,7 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 
 	m := getStatusMap()
 
-	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transaction WHERE user_token = $1 AND type = $1 ORDER BY uploaded_at", userToken, TypeAccrual)
+	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transactions WHERE user_token = $1 AND type = $1 ORDER BY uploaded_at", userToken, TypeAccrual)
 
 	if err != nil {
 		return myAccruals, err
@@ -409,7 +415,7 @@ func (r *Repo) FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRa
 	points := 0.0
 	uploadedAt := "NULL"
 
-	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token, status, points, uploaded_at from transaction WHERE order_id = $1 and type = $2", orderID, TypeAccrual)
+	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token, status, points, uploaded_at from transactions WHERE order_id = $1 and type = $2", orderID, TypeAccrual)
 	err := row.Scan(&token, &status, &points, &uploadedAt)
 	if err != nil {
 		log.Print(err.Error())
