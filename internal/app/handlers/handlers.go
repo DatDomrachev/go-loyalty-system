@@ -289,9 +289,8 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 
 		body, err := ioutil.ReadAll(r.Body)
 
-		defer r.Body.Close()
-
 		if err != nil {
+			defer r.Body.Close()
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -399,9 +398,8 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
     res, err := http.DefaultClient.Do(req)
     
-    defer res.Body.Close()
-
     if err != nil {
+    	defer res.Body.Close()
         log.Printf("%v\n", err)
         return processingOrder, err
     }
