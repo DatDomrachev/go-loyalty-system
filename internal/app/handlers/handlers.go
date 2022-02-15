@@ -252,7 +252,7 @@ func WithdrawHandler(repo repository.Repositorier, userToken string) func(w http
 		}
 
 		check := validateLuhnOrderNumber(withdraw.OrderID)
-		if(check == false) {
+		if !check {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
@@ -288,6 +288,9 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 		}
 
 		body, err := ioutil.ReadAll(r.Body)
+
+		defer r.Body.Close()
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -296,7 +299,7 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 		number := string(body)
 
 		check := validateLuhnOrderNumber(number)
-		if(check == false) {
+		if !check {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
@@ -316,7 +319,6 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 			
 		w.WriteHeader(http.StatusAccepted)
 		go ProcessOrder(repo, wp, AccrualURL, userToken, number)
-		return
 	}
 }
 		

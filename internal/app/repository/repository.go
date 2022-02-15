@@ -26,13 +26,13 @@ type Repositorier interface {
 	FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRaw, error)
 }
 
-const TYPE_ACCRUAL = 1
-const TYPE_WITHDRAW = 2
+const TypeAccrual = 1
+const TypeWithdraw = 2
 
-const STATUS_NEW = 1
-const STATUS_PROCESSING = 2
-const STATUS_INVALID = 3
-const STATUS_PROCESSED = 4
+const StatusNew = 1
+const StatusProcessing = 2
+const StatusInvalid = 3
+const StatusProcessed = 4
 
 type LoginData struct {
 	Login    string `json:"login"`
@@ -121,10 +121,10 @@ var updateBalance *sql.Stmt
 
 func getStatusMap() map[int]string {
 	return map[int]string{
-		STATUS_NEW: "NEW" ,
-		STATUS_PROCESSING: "PROCESSING",
-		STATUS_INVALID: "INVALID",
-		STATUS_PROCESSED: "PROCESSED",
+		StatusNew: "NEW" ,
+		StatusProcessing: "PROCESSING",
+		StatusInvalid: "INVALID",
+		StatusProcessed: "PROCESSED",
 
 	}
 }
@@ -293,7 +293,7 @@ func (r *Repo) GetWithdrawals(ctx context.Context, userToken string) ([]Processe
 
 	var myWithdraws []ProcessedWithdraw
 
-	rows, err := r.DB.conn.QueryContext(ctx, "Select order_id, points, processed_at from transaction WHERE user_token = $1 AND type = $2 AND status = $3 ORDER BY processed_at", userToken, TYPE_WITHDRAW, STATUS_PROCESSED)
+	rows, err := r.DB.conn.QueryContext(ctx, "Select order_id, points, processed_at from transaction WHERE user_token = $1 AND type = $2 AND status = $3 ORDER BY processed_at", userToken, TypeWithdraw, StatusProcessed)
 
 	if err != nil {
 		return myWithdraws, err
@@ -326,7 +326,7 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 
 	m := getStatusMap()
 
-	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transaction WHERE user_token = $1 AND type = $1 ORDER BY uploaded_at", userToken, TYPE_ACCRUAL)
+	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transaction WHERE user_token = $1 AND type = $1 ORDER BY uploaded_at", userToken, TypeAccrual)
 
 	if err != nil {
 		return myAccruals, err
@@ -389,7 +389,7 @@ func (r *Repo) SaveWithdraw(ctx context.Context, orderID string, points float64,
 
     txStmt := tx.StmtContext(ctx, insertTransaction)
     
-    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TYPE_WITHDRAW, STATUS_PROCESSED, points, timeString); err != nil {
+    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeWithdraw, StatusProcessed, points, timeString); err != nil {
         return err
     }
     
@@ -409,7 +409,7 @@ func (r *Repo) FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRa
 	points := 0.0
 	uploadedAt := "NULL"
 
-	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token, status, points, uploaded_at from transaction WHERE order_id = $1 and type = $2", orderID, TYPE_ACCRUAL)
+	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token, status, points, uploaded_at from transaction WHERE order_id = $1 and type = $2", orderID, TypeAccrual)
 	err := row.Scan(&token, &status, &points, &uploadedAt)
 	if err != nil {
 		log.Print(err.Error())
@@ -437,7 +437,7 @@ func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string
 
     txStmt := tx.StmtContext(ctx, insertTransaction)
     
-    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TYPE_ACCRUAL, STATUS_NEW, 0.0, "NULL"); err != nil {
+    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0, "NULL"); err != nil {
         return err
     }
     
@@ -456,7 +456,7 @@ func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, a
 
 	newBalance := 0.0
 	withdrawn := 0.0
-	if statusKey == STATUS_PROCESSED {
+	if statusKey == StatusProcessed {
     	balance, err := r.GetBalance(ctx, userToken)
 	
 		if err != nil {
@@ -474,17 +474,17 @@ func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, a
 
     timeString := "NULL"
 
-    if statusKey == STATUS_PROCESSED {
+    if statusKey == StatusProcessed {
     	timeString = carbon.Time2Carbon(time.Now()).ToRfc3339String()
     }
 
     txStmt := tx.StmtContext(ctx, updateTransaction)
     
-    if _, err = txStmt.ExecContext(ctx, statusKey, accrual, timeString, orderID, TYPE_ACCRUAL); err != nil {
+    if _, err = txStmt.ExecContext(ctx, statusKey, accrual, timeString, orderID, TypeAccrual); err != nil {
         return err
     }
 
-    if statusKey == STATUS_PROCESSED {
+    if statusKey == StatusProcessed {
 
     	txStmt = tx.StmtContext(ctx, updateBalance)
 	    if _, err = txStmt.ExecContext(ctx, newBalance, withdrawn, userToken); err != nil {
