@@ -367,8 +367,8 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 		case <-wp.Done():
 			log.Print("done")
 			return
-		default:
-			log.Print("waiting")
+		// default:
+		// 	log.Print("waiting")
 		} 
 	
 	}
