@@ -229,7 +229,7 @@ func New(dataBaseURL string) (*Repo, error) {
 func (r *Repo) SaveUser(ctx context.Context, login string, password string) (int, error) {
 	id := 0
 
-	row := r.DB.conn.QueryRowContext(ctx, "Insert into user (login, password) VALUES ($1, $2) RETURNING id", login, password)
+	row := r.DB.conn.QueryRowContext(ctx, "Insert into users (login, password) VALUES ($1, $2) RETURNING id", login, password)
 	err := row.Scan(&id)
 
 	if err != nil {
