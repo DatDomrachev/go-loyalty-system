@@ -418,7 +418,6 @@ func (r *Repo) FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRa
 	row := r.DB.conn.QueryRowContext(ctx, "SELECT user_token, status, points, uploaded_at from transactions WHERE order_id = $1 and type = $2", orderID, TypeAccrual)
 	err := row.Scan(&token, &status, &points, &uploadedAt)
 	if err != nil {
-		log.Print(err.Error())
 		return nil, err
 	}
 

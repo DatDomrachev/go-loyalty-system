@@ -335,16 +335,23 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 			case r, ok := <-wp.Results():
 				if !ok {
 					continue
-				}	
+				}
 
-			val := r.Value.(repository.ProcessingOrder)
-			
-			if val.Status == "PROCESSED" {
+			err := r.Err
+			if err != nil {
+				log.Print(err)
 				//go wp.BroadcastDone(true)
 				break
-			}	
-			
-			
+
+			} else {
+				val := r.Value.(repository.ProcessingOrder)
+				log.Print(val.Status)
+				if val.Status == "PROCESSED" {
+					//go wp.BroadcastDone(true)
+					break
+				}	
+			}		
+
 
 			time := time.Now().Unix()
 
@@ -377,7 +384,7 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 }
 
 
-func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID string, userToken string, endpoint string) (repository.ProcessingOrder, error) {
+func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID string, userToken string, endpoint string) (interface{}, error) {
 	
 	var processingOrder repository.ProcessingOrder
 
@@ -388,7 +395,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 	req, err := http.NewRequest("GET", url, payload)
     if err != nil {
         log.Printf("%v\n", err)
-        return processingOrder, err
+        return nil, err
     }
 
     res, err := http.DefaultClient.Do(req)
@@ -396,12 +403,12 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     if err != nil {
     	defer res.Body.Close()
         log.Printf("%v\n", err)
-        return processingOrder, err
+        return nil, err
     }
 
     if res.StatusCode == http.StatusInternalServerError {
     	log.Printf("BadResponse %v\n", orderID)
-    	return processingOrder, &BadResponse{
+    	return nil, &BadResponse{
     		Message: "BadResponse on order"+ orderID,
     	}
     }
@@ -409,7 +416,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     if res.StatusCode == http.StatusTooManyRequests {
     	log.Printf("TooManyRequest %v\n", orderID)
     	time.Sleep(60 * time.Second)
-    	return processingOrder, &TooManyRequests {
+    	return nil, &TooManyRequests {
     		Message: "TooManyRequest on order" + orderID,
     	}
     }
@@ -417,13 +424,14 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
 		log.Printf("%v\n", err)
-		return processingOrder, err
+		return nil, err
 	}
 
+	log.Print("here")
 	err = repo.UpdateOrder(ctx, processingOrder.OrderID, processingOrder.Status, processingOrder.Accrual, userToken);
 	if err != nil {
         log.Printf("%v\n", err)
-        return processingOrder, err
+        return nil, err
     }
 
 	return processingOrder, nil
