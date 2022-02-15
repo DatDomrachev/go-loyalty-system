@@ -4,13 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"github.com/DatDomrachev/shortner_go/internal/app/handlers"
-	"github.com/DatDomrachev/shortner_go/internal/app/repository"
-	"github.com/DatDomrachev/shortner_go/internal/app/wpool"
+	"github.com/DatDomrachev/go-loyalty-system/internal/app/handlers"
+	"github.com/DatDomrachev/go-loyalty-system/internal/app/repository"
+	"github.com/DatDomrachev/go-loyalty-system/internal/app/wpool"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"io"
@@ -26,10 +22,10 @@ type Server interface {
 }
 
 type srv struct {
-	address string
-	baseURL string
-	repo    repository.Repositorier
-	wp 		wpool.WorkerPooler
+	address    string
+	AccrualURL string
+	repo       repository.Repositorier
+	wp 		   wpool.WorkerPooler
 }
 
 type gzipWriter struct {
@@ -43,10 +39,10 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
-func New(address string, baseURL string, repo repository.Repositorier, wp wpool.WorkerPooler) *srv {
+func New(address string, AccrualURL string, repo repository.Repositorier, wp wpool.WorkerPooler) *srv {
 	server := &srv{
 		address: address,
-		baseURL: baseURL,
+		AccrualURL: AccrualURL,
 		repo:    repo,
 		wp: 	 wp,
 	}
@@ -96,32 +92,55 @@ func (s *srv) Run(ctx context.Context) (err error) {
 
 func (s *srv) ConfigureRouter() *chi.Mux {
 	router := chi.NewRouter()
-	router.Use(middleware.Logger)
-	router.Use(GzipHandle)
-	router.Use(CookieManager)
+	
+	
 
-	router.Get("/{Id}", handlers.SimpleReadHandler(s.repo))
-	router.Post("/", func(rw http.ResponseWriter, r *http.Request) {
-		u := r.Context().Value(contextKey("user_token")).(string)
-		handlers.SimpleWriteHandler(s.repo, s.baseURL, u)(rw, r)
-	})
-	router.Get("/user/urls", func(rw http.ResponseWriter, r *http.Request) {
-		u := r.Context().Value(contextKey("user_token")).(string)
-		handlers.AllMyURLSHandler(s.repo, s.baseURL, u)(rw, r)
-	})
-	router.Get("/ping", handlers.PingDB(s.repo))
-	router.Post("/api/shorten/batch", func(rw http.ResponseWriter, r *http.Request) {
-		u := r.Context().Value(contextKey("user_token")).(string)
-		handlers.BatchHandler(s.repo, s.baseURL, u)(rw, r)
-	})
-	router.Post("/api/shorten", func(rw http.ResponseWriter, r *http.Request) {
-		u := r.Context().Value(contextKey("user_token")).(string)
-		handlers.SimpleJSONHandler(s.repo, s.baseURL, u)(rw, r)
-	})
-	router.Delete("/api/user/urls", func(rw http.ResponseWriter, r *http.Request) {
-		u := r.Context().Value(contextKey("user_token")).(string)
-		handlers.DeleteItemsHandler(s.repo, s.wp, s.baseURL, u)(rw, r)
-	})
+	
+	router.Group(func(router chi.Router) {
+		router.Use(middleware.Logger)
+		router.Use(GzipHandle)
+		
+		router.Post("/api/user/register", func(rw http.ResponseWriter, r *http.Request) {
+		 	handlers.RegisterHandler(s.repo)(rw, r)
+		})
+
+		router.Post("/api/user/login", func(rw http.ResponseWriter, r *http.Request) {
+		 	handlers.LoginHandler(s.repo)(rw, r)
+		})
+	}
+
+	router.Group(func(router chi.Router) {
+		router.Use(middleware.Logger)
+		router.Use(GzipHandle)
+		router.Use(auth.CheckUser)
+
+		router.Get("/api/user/balance", func(rw http.ResponseWriter, r *http.Request) {
+		 	u := r.Context().Value(contextKey("user_token")).(string)
+		 	handlers.GetBalanceHandler(s.repo, u)(rw, r)
+		})
+
+		router.Get("/api/user/balance/withdrawals", func(rw http.ResponseWriter, r *http.Request) {
+		 	u := r.Context().Value(contextKey("user_token")).(string)
+		 	handlers.WithdarawListHandler(s.repo, u)(rw, r)
+		})
+
+		router.Get("/api/user/orders", func(rw http.ResponseWriter, r *http.Request) {
+		 	u := r.Context().Value(contextKey("user_token")).(string)
+		 	handlers.OrderListHandler(s.repo, u)(rw, r)
+		})
+
+		router.Post("/api/user/balance/withdraw", func(rw http.ResponseWriter, r *http.Request) {
+		 	u := r.Context().Value(contextKey("user_token")).(string)
+		 	handlers.WithdrawHandler(s.repo, u)(rw, r)
+		})
+
+		router.Post("/api/user/orders", func(rw http.ResponseWriter, r *http.Request) {
+		 	u := r.Context().Value(contextKey("user_token")).(string)
+		 	handlers.OrderHandler(s.repo, s.AccrualURL, u)(rw, r)
+		})
+
+	}
+		
 	return router
 }
 
@@ -162,70 +181,5 @@ func GzipHandle(next http.Handler) http.Handler {
 
 		w.Header().Set("Content-Encoding", "gzip")
 		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
-	})
-}
-
-func newCookie(key []byte) (cookie *http.Cookie, err error) {
-
-	//рандомные байты
-	src := make([]byte, 16)
-	_, err = rand.Read(src)
-	if err != nil {
-		return nil, err
-	}
-
-	//подпись
-	h := hmac.New(sha256.New, key)
-	h.Write(src)
-
-	cookie = &http.Cookie{
-		Name:  "user_token",
-		Value: hex.EncodeToString(src) + hex.EncodeToString(h.Sum(nil)),
-	}
-
-	return cookie, nil
-}
-
-func CookieManager(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var secretkey = []byte("secret key of My Castle")
-
-		cookie, err := r.Cookie("user_token")
-
-		if err == nil {
-
-			userKey := cookie.Value
-
-			data, err := hex.DecodeString(userKey)
-
-			if err != nil {
-				log.Fatalf("CookieManager error:%+v", err)
-			}
-
-			h := hmac.New(sha256.New, secretkey)
-			h.Write(data[:16])
-			sign := h.Sum(nil)
-
-			if !hmac.Equal(sign, data[16:]) {
-
-				cookie, err = newCookie(secretkey)
-				if err != nil {
-					log.Fatalf("CookieManager error:%+v", err)
-				}
-			}
-
-		} else {
-
-			cookie, err = newCookie(secretkey)
-			if err != nil {
-				log.Fatalf("CookieManager error:%+v", err)
-			}
-		}
-
-		http.SetCookie(w, cookie)
-
-		ctx := context.WithValue(r.Context(), contextKey("user_token"), cookie.Value)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

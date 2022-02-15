@@ -21,7 +21,7 @@ func main() {
 
 	config.InitFlags()
 	
-	repo, err := repository.New(config.StoragePath, config.DBURL)
+	repo, err := repository.New(config.DBURL)
 	if err != nil {
 		log.Fatalf("failed to init repository:+%v", err)
 	}
@@ -30,7 +30,7 @@ func main() {
 
 	wp := wpool.New(workersCounter);
 
-	s := server.New(config.Address, config.BaseURL, repo, wp)
+	s := server.New(config.Address, config.AccrualURL, repo, wp)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
