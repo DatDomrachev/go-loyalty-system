@@ -394,7 +394,7 @@ func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.Wo
 		case <-wp.Done():
 			log.Print("done")
 			return
-		default:
+		//default:
 		 	//log.Print("waiting")
 		} 
 	
