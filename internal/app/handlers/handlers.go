@@ -36,6 +36,10 @@ type TooManyRequests struct {
 	Message string
 }
 
+type DBError struct {
+	Message string
+}
+
 
 func (ae *ArgsError) Error() string {
 	return fmt.Sprintf("%v", ae.Message)
@@ -47,6 +51,10 @@ func (br *BadResponse) Error() string {
 
 func (tmr *TooManyRequests) Error() string {
 	return fmt.Sprintf("%v", tmr.Message)
+}
+
+func (dbe *DBError) Error() string {
+	return fmt.Sprintf("%v", dbe.Message)
 }
 
 func validateLuhnOrderNumber(num string) bool {
@@ -362,9 +370,15 @@ func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.Wo
 
 			err := r.Err
 			if err != nil {
-				log.Print(err)
-				go wp.BroadcastDone(true)
-				break
+				var tmr *TooManyRequests
+
+				if errors.As(err, &tmr) {
+					time.Sleep(60 * time.Second)
+				} else {
+					log.Print(err)
+					go wp.BroadcastDone(true)
+					break
+				}
 
 			} else {
 				val := r.Value.(repository.ProcessingOrder)
@@ -423,37 +437,41 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     res, err := http.DefaultClient.Do(req)
     
     if err != nil {
-        log.Printf("%v\n", err)
-        return nil, err
+        log.Printf("Can't do request to accrual %v\n", err)
+        return nil, &BadResponse{
+    		Message: "Unable to do request to accrual"+ orderID,
+    	}
     }
 
     if res.StatusCode == http.StatusInternalServerError {
     	log.Printf("BadResponse %v\n", orderID)
     	return nil, &BadResponse{
-    		Message: "BadResponse on order"+ orderID,
+    		Message: "BadResponse on order "+ orderID,
     	}
     }
 
     if res.StatusCode == http.StatusTooManyRequests {
     	log.Printf("TooManyRequest %v\n", orderID)
-    	time.Sleep(60 * time.Second)
     	return nil, &TooManyRequests {
-    		Message: "TooManyRequest on order" + orderID,
+    		Message: "TooManyRequest on order " + orderID,
     	}
     }
 
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
     	defer res.Body.Close()
-		log.Printf("%v\n", err)
-		return nil, err
+		return nil, &BadResponse{
+    		Message: "Unable to read response on order "+ orderID,
+    	}
 	}
 
-	log.Print("here")
+	log.Print("Accrual correct response %v\n", orderID)
 	err = repo.UpdateOrder(ctx, processingOrder.OrderID, processingOrder.Status, processingOrder.Accrual, userToken);
 	if err != nil {
-        log.Printf("%v\n", err)
-        return nil, err
+        log.Printf("DB error %v\n", err)
+        return nil, &DBError{
+    		Message: "DB error on order "+ orderID,
+    	}
     }
 
 	return processingOrder, nil
