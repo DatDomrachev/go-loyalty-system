@@ -466,7 +466,8 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     	return nil, err
     }
 
-    log.Printf(string(body));
+    bodyString := string(body)
+    log.Printf("BODY: %v\n", bodyString)
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
 		return nil, &BadResponse{
