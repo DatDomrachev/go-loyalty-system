@@ -453,10 +453,10 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     
    
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
+		defer res.Body.Close()
 		return nil, &BadResponse{
     		Message: "Unable to read response on order "+ orderID,
     	}
-    	defer res.Body.Close()
 	}
 
 
