@@ -460,12 +460,13 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
     var processingOrder repository.ProcessingOrder
     body, err := ioutil.ReadAll(res.Body)
-    log.Printf(string(body));
-
+    
     if err != nil {
     	defer res.Body.Close()
     	return nil, err
     }
+
+    log.Printf(string(body));
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
 		return nil, &BadResponse{
