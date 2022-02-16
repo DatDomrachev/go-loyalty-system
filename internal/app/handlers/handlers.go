@@ -430,8 +430,10 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
 	req, err := http.NewRequest("GET", url, payload)
     if err != nil {
-        log.Printf("%v\n", err)
-        return nil, err
+        log.Printf("Can't prepare request to accrual %v\n", err)
+        return nil, &BadResponse{
+    		Message: "Can't prepare request to accrual"+ orderID,
+    	}
     }
 
     res, err := http.DefaultClient.Do(req)
@@ -465,7 +467,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     	}
 	}
 
-	log.Print("Accrual correct response %v\n", orderID)
+	log.Printf("Accrual correct response %v\n", orderID)
 	err = repo.UpdateOrder(ctx, processingOrder.OrderID, processingOrder.Status, processingOrder.Accrual, userToken);
 	if err != nil {
         log.Printf("DB error %v\n", err)
