@@ -338,7 +338,7 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 
 	m := getStatusMap()
 
-	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transactions WHERE user_token = $1 AND type = $1 ORDER BY uploaded_at", userToken, TypeAccrual)
+	rows, err := r.DB.conn.QueryContext(ctx, "Select user_token, order_id, status, points, uploaded_at from transactions WHERE user_token = $1 AND type = $2 ORDER BY uploaded_at", userToken, TypeAccrual)
 
 	if err != nil {
 		return myAccruals, err
