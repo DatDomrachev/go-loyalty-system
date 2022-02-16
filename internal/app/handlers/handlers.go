@@ -459,6 +459,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     }
 
     var processingOrder repository.ProcessingOrder
+    
     body, err := ioutil.ReadAll(res.Body)
     
     if err != nil {
