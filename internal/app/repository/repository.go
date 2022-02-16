@@ -3,14 +3,13 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"github.com/golang-module/carbon/v2"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"log"
-	"fmt"
 	"time"
-	"github.com/golang-module/carbon/v2"
-	//"github.com/pressly/goose/v3"
 )
 
 type Repositorier interface {
@@ -20,9 +19,9 @@ type Repositorier interface {
 	GetBalance(ctx context.Context, userToken string) (*Balance, error)
 	GetWithdrawals(ctx context.Context, userToken string) ([]ProcessedWithdraw, error)
 	GetOrders(ctx context.Context, userToken string) ([]Accrual, error)
-	SaveWithdraw(ctx context.Context, orderID string, points float64, userToken string) (error)
-	CreateOrder(ctx context.Context, orderID string, userToken string) (error)
-	UpdateOrder(ctx context.Context, orderID string, status string, accrual float64, userToken string) (error)
+	SaveWithdraw(ctx context.Context, orderID string, points float64, userToken string) error
+	CreateOrder(ctx context.Context, orderID string, userToken string) error
+	UpdateOrder(ctx context.Context, orderID string, status string, accrual float64, userToken string) error
 	FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRaw, error)
 }
 
@@ -40,7 +39,7 @@ type LoginData struct {
 }
 
 type AccrualRaw struct {
-	UserToken  string  `json:"token"` 
+	UserToken  string  `json:"token"`
 	OrderID    string  `json:"number"`
 	Status     int     `json:"status"`
 	Accrual    float64 `json:"accrual"`
@@ -60,22 +59,21 @@ type Balance struct {
 }
 
 type Withdraw struct {
-	OrderID string 	`json:"order"`
-	Points 	float64 `json:"sum"`
+	OrderID string  `json:"order"`
+	Points  float64 `json:"sum"`
 }
 
 type ProcessedWithdraw struct {
-	OrderID 	string 	`json:"order"`
-	Points 		float64 `json:"sum"`
+	OrderID     string  `json:"order"`
+	Points      float64 `json:"sum"`
 	ProcessedAt string  `json:"processed_at"`
 }
 
 type ProcessingOrder struct {
-	OrderID    string  `json:"order"`
-	Status     string  `json:"status"`
-	Accrual    float64 `json:"accrual" default:"0.0"`
+	OrderID string  `json:"order"`
+	Status  string  `json:"status"`
+	Accrual float64 `json:"accrual" default:"0.0"`
 }
-
 
 type DataBase struct {
 	conn *sql.DB
@@ -85,7 +83,6 @@ type Repo struct {
 	StoragePath string
 	DB          *DataBase
 }
-
 
 type ConflictError struct {
 	Err error
@@ -100,7 +97,7 @@ type LowPointsError struct {
 }
 
 type QueryResult struct {
-	Message string 
+	Message string
 }
 
 func (lpe *LowPointsError) Error() string {
@@ -122,11 +119,10 @@ var updateBalance *sql.Stmt
 
 func getStatusMap() map[int]string {
 	return map[int]string{
-		StatusNew: "NEW" ,
+		StatusNew:        "NEW",
 		StatusProcessing: "PROCESSING",
-		StatusInvalid: "INVALID",
-		StatusProcessed: "PROCESSED",
-
+		StatusInvalid:    "INVALID",
+		StatusProcessed:  "PROCESSED",
 	}
 }
 
@@ -140,7 +136,7 @@ func firstKeyByValue(m map[int]string, value string) int {
 }
 
 func New(dataBaseURL string) (*Repo, error) {
-	
+
 	dataBase := &DataBase{
 		conn: nil,
 	}
@@ -149,7 +145,6 @@ func New(dataBaseURL string) (*Repo, error) {
 		DB: dataBase,
 	}
 
-	
 	if dataBaseURL != "" {
 		db, err := sql.Open("pgx", dataBaseURL)
 		if err != nil {
@@ -162,19 +157,12 @@ func New(dataBaseURL string) (*Repo, error) {
 			return nil, err
 		}
 
-		// Не взлетел гусь на автотестах, жаль
-		// err = goose.Up(db, "migrations" )
-		// if err != nil {
-		// 	log.Fatalf("failed executing migrations: %v\n", err)
-		// }
-
 		_, err = db.Exec("CREATE TABLE if not exists users (id BIGSERIAL primary key, login text, password text, user_token text, balance float default 0.0, withdrawn float default 0.0)")
 
 		if err != nil {
 			return nil, err
 		}
 
-		
 		_, err = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS unique_login_constrain ON users(login)")
 
 		if err != nil {
@@ -187,30 +175,28 @@ func New(dataBaseURL string) (*Repo, error) {
 			return nil, err
 		}
 
-
 		_, err = db.Exec("CREATE TABLE if not exists transactions (id BIGSERIAL primary key, user_token text, order_id text, type integer, status integer, points float default 0.0, uploaded_at TIMESTAMPTZ default now(), processed_at TIMESTAMPTZ, FOREIGN KEY (user_token) REFERENCES users (user_token))")
 
 		if err != nil {
 			return nil, err
 		}
 
-
-		insertTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points, processed_at) VALUES($1,$2,$3,$4,$5,$6)") 
+		insertTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points, processed_at) VALUES($1,$2,$3,$4,$5,$6)")
 		if err != nil {
 			return nil, err
 		}
 
-		insertAccrualTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points) VALUES($1,$2,$3,$4,$5)") 
+		insertAccrualTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points) VALUES($1,$2,$3,$4,$5)")
 		if err != nil {
 			return nil, err
 		}
 
-		updateTransaction, err = db.Prepare("UPDATE transactions set status = $1, points = $2, processed_at = $3 where order_id = $4 and type = $5") 
+		updateTransaction, err = db.Prepare("UPDATE transactions set status = $1, points = $2, processed_at = $3 where order_id = $4 and type = $5")
 		if err != nil {
 			return nil, err
 		}
 
-		updateBalance, err = db.Prepare("UPDATE users set balance = $1, withdrawn = $2 where user_token = $3") 
+		updateBalance, err = db.Prepare("UPDATE users set balance = $1, withdrawn = $2 where user_token = $3")
 		if err != nil {
 			return nil, err
 		}
@@ -222,15 +208,13 @@ func New(dataBaseURL string) (*Repo, error) {
 		repo.DB = dataBase
 
 	} else {
-		return nil, &DBError {
+		return nil, &DBError{
 			Message: "Подключение к БД отсутствует",
-		} 
+		}
 	}
 
 	return repo, nil
 }
-
-
 
 func (r *Repo) SaveUser(ctx context.Context, login string, password string) (int, error) {
 	id := 0
@@ -242,7 +226,7 @@ func (r *Repo) SaveUser(ctx context.Context, login string, password string) (int
 		err, ok := err.(*pgconn.PgError)
 
 		if ok && err.Code == pgerrcode.UniqueViolation {
-			return 0, &ConflictError {
+			return 0, &ConflictError{
 				Err: err,
 			}
 		} else {
@@ -253,19 +237,16 @@ func (r *Repo) SaveUser(ctx context.Context, login string, password string) (int
 	return id, nil
 }
 
-
-
 func (r *Repo) SaveUserToken(ctx context.Context, id int, userToken string) (string, error) {
 	_, err := r.DB.conn.ExecContext(ctx, "UPDATE users SET user_token = $1 WHERE id = $2", userToken, id)
 
 	if err != nil {
 		return "", err
 	}
-		
+
 	return userToken, nil
 
 }
-
 
 func (r *Repo) FindUser(ctx context.Context, login string, password string) (string, error) {
 	token := ""
@@ -287,19 +268,17 @@ func (r *Repo) GetBalance(ctx context.Context, userToken string) (*Balance, erro
 	if err != nil {
 		log.Print(err.Error())
 		return &Balance{
-			Current: balance,
+			Current:   balance,
 			Withdrawn: withdrawn,
 		}, err
 	}
 
-
 	return &Balance{
-		Current: balance,
+		Current:   balance,
 		Withdrawn: withdrawn,
 	}, nil
 
 }
-
 
 func (r *Repo) GetWithdrawals(ctx context.Context, userToken string) ([]ProcessedWithdraw, error) {
 
@@ -331,7 +310,6 @@ func (r *Repo) GetWithdrawals(ctx context.Context, userToken string) ([]Processe
 
 }
 
-
 func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, error) {
 
 	var myAccruals []Accrual
@@ -355,13 +333,13 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 
 		item.OrderID = itemRaw.OrderID
 		item.Status = m[itemRaw.Status]
-		
-		if itemRaw.Accrual > 0 {	
+
+		if itemRaw.Accrual > 0 {
 			item.Accrual = itemRaw.Accrual
 		}
-		
-		item.UploadedAt = itemRaw.UploadedAt 
-		
+
+		item.UploadedAt = itemRaw.UploadedAt
+
 		myAccruals = append(myAccruals, item)
 	}
 
@@ -374,16 +352,16 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 
 }
 
-func (r *Repo) SaveWithdraw(ctx context.Context, orderID string, points float64, userToken string) (error) {
-	
+func (r *Repo) SaveWithdraw(ctx context.Context, orderID string, points float64, userToken string) error {
+
 	balance, err := r.GetBalance(ctx, userToken)
-	
+
 	if err != nil {
 		return err
 	}
 
 	if points > balance.Current {
-		return &LowPointsError {
+		return &LowPointsError{
 			Message: "Недостаточно баллов для списания",
 		}
 	}
@@ -393,27 +371,25 @@ func (r *Repo) SaveWithdraw(ctx context.Context, orderID string, points float64,
 	timeString := carbon.Time2Carbon(time.Now()).ToRfc3339String()
 
 	tx, err := r.DB.conn.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
+	txStmt := tx.StmtContext(ctx, insertTransaction)
 
-    txStmt := tx.StmtContext(ctx, insertTransaction)
-    
-    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeWithdraw, StatusProcessed, points, timeString); err != nil {
-        return err
-    }
-    
-    txStmt = tx.StmtContext(ctx, updateBalance)
-    if _, err = txStmt.ExecContext(ctx, newBalance, newWithdrawn, userToken); err != nil {
-        return err
-    }
+	if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeWithdraw, StatusProcessed, points, timeString); err != nil {
+		return err
+	}
 
-    return tx.Commit()
-	
+	txStmt = tx.StmtContext(ctx, updateBalance)
+	if _, err = txStmt.ExecContext(ctx, newBalance, newWithdrawn, userToken); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+
 }
-
 
 func (r *Repo) FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRaw, error) {
 	token := ""
@@ -428,39 +404,38 @@ func (r *Repo) FindOrderAccrual(ctx context.Context, orderID string) (*AccrualRa
 	}
 
 	return &AccrualRaw{
-		UserToken: token,
-		OrderID: orderID,
-		Status: status,
-		Accrual: points,
+		UserToken:  token,
+		OrderID:    orderID,
+		Status:     status,
+		Accrual:    points,
 		UploadedAt: uploadedAt,
 	}, nil
 
 }
 
-
-func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string) (error) {
+func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string) error {
 
 	tx, err := r.DB.conn.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-    txStmt := tx.StmtContext(ctx, insertAccrualTransaction)
-    
-    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0); err != nil {
-        return err
-    }
-    
-    return tx.Commit()
+	txStmt := tx.StmtContext(ctx, insertAccrualTransaction)
+
+	if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 
 }
 
-func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, accrual float64, userToken string) (error) {
+func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, accrual float64, userToken string) error {
 	m := getStatusMap()
 	statusKey := firstKeyByValue(m, status)
-	
-	if(statusKey == 0) {
+
+	if statusKey == 0 {
 		//r.CreateOrder(ctx, orderID, userToken)
 		return nil
 	}
@@ -468,42 +443,41 @@ func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, a
 	newBalance := 0.0
 	withdrawn := 0.0
 	if statusKey == StatusProcessed {
-    	balance, err := r.GetBalance(ctx, userToken)
-	
+		balance, err := r.GetBalance(ctx, userToken)
+
 		if err != nil {
 			return err
 		}
 		newBalance = balance.Current + accrual
 		withdrawn = balance.Withdrawn
-    }
+	}
 
 	tx, err := r.DB.conn.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-    timeString := "NULL"
+	timeString := "NULL"
 
-    if statusKey == StatusProcessed {
-    	timeString = carbon.Time2Carbon(time.Now()).ToRfc3339String()
-    }
+	if statusKey == StatusProcessed {
+		timeString = carbon.Time2Carbon(time.Now()).ToRfc3339String()
+	}
 
-    txStmt := tx.StmtContext(ctx, updateTransaction)
-    
-    if _, err = txStmt.ExecContext(ctx, statusKey, accrual, timeString, orderID, TypeAccrual); err != nil {
-        return err
-    }
+	txStmt := tx.StmtContext(ctx, updateTransaction)
 
-    if statusKey == StatusProcessed {
+	if _, err = txStmt.ExecContext(ctx, statusKey, accrual, timeString, orderID, TypeAccrual); err != nil {
+		return err
+	}
 
-    	txStmt = tx.StmtContext(ctx, updateBalance)
-	    if _, err = txStmt.ExecContext(ctx, newBalance, withdrawn, userToken); err != nil {
-	        return err
-	    }
-    }
+	if statusKey == StatusProcessed {
 
-    
-    return tx.Commit()
+		txStmt = tx.StmtContext(ctx, updateBalance)
+		if _, err = txStmt.ExecContext(ctx, newBalance, withdrawn, userToken); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 
 }

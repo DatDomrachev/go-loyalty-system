@@ -321,12 +321,14 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
-		go ProcessOrder(r.Context(), repo, wp, AccrualURL, userToken, number)
+		
+		
+		go ProcessOrder(repo, wp, AccrualURL, userToken, number)
 	}
 }
 		
-func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, OrderID string) {
-		 
+func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, OrderID string) {
+	// ставим первую задачу в воркер пулл на запрос в acrual	 
 	execFn := func(ctx context.Context, args interface{}) (interface{}, error) {		
 		argVal, ok := args.(JobData)
 	
@@ -359,7 +361,7 @@ func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.Wo
 
 
 
-
+	//поворяем до получения результата или ошибки
 	for {
 		select {
 			case r, ok := <-wp.Results():
