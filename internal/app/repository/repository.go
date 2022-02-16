@@ -71,7 +71,7 @@ type ProcessedWithdraw struct {
 }
 
 type ProcessingOrder struct {
-	OrderID    string  `json:"number"`
+	OrderID    string  `json:"order"`
 	Status     string  `json:"status"`
 	Accrual    float64 `json:"accrual,omitempty" default:"0.0"`
 }
