@@ -207,7 +207,7 @@ func WithdrawListHandler(repo repository.Repositorier, userToken string) func(w 
 
 func OrderListHandler(repo repository.Repositorier, userToken string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-
+		w.Header().Set("content-type", "application/json")
 		items, err := repo.GetOrders(r.Context(), userToken)
 
 		if err != nil {
@@ -216,12 +216,10 @@ func OrderListHandler(repo repository.Repositorier, userToken string) func(w htt
 		}
 
 		if len(items) == 0 {
-			w.Header().Set("content-type", "application/json")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		w.Header().Set("content-type", "application/json")
 		w.WriteHeader(http.StatusOK)
 
 		buf := bytes.NewBuffer([]byte{})
