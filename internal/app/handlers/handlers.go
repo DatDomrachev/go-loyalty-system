@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"errors"
-	"strings"
 	"context"
 	"fmt"
 	"time"
@@ -425,17 +424,9 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
 	url := endpoint+"/api/orders/"+orderID
 	
-	payload := strings.NewReader("")
+	var myClient = &http.Client{Timeout: 10 * time.Second}
 
-	req, err := http.NewRequest("GET", url, payload)
-    if err != nil {
-        log.Printf("Can't prepare request to accrual %v\n", err)
-        return nil, &BadResponse{
-    		Message: "Unable to prepare request to accrual "+ orderID,
-    	}
-    }
-
-    res, err := http.DefaultClient.Do(req)
+    res, err := myClient.Get(url)
     
     if err != nil {
         log.Printf("Can't do request to accrual %v\n", err)
@@ -460,21 +451,14 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
     var processingOrder repository.ProcessingOrder
     
-    body, err := ioutil.ReadAll(res.Body)
-    
-    if err != nil {
-    	defer res.Body.Close()
-    	return nil, err
-    }
-
-    bodyString := string(body)
-    log.Printf("BODY: %v\n", bodyString)
-
+   
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
 		return nil, &BadResponse{
     		Message: "Unable to read response on order "+ orderID,
     	}
+    	defer res.Body.Close()
 	}
+
 
 	log.Printf("Accrual correct response %v\n", orderID)
 	err = repo.UpdateOrder(ctx, processingOrder.OrderID, processingOrder.Status, processingOrder.Accrual, userToken);
