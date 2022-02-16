@@ -116,6 +116,7 @@ func (dbe *DBError) Error() string {
 }
 
 var insertTransaction *sql.Stmt
+var insertAccrualTransaction *sql.Stmt
 var updateTransaction *sql.Stmt
 var updateBalance *sql.Stmt
 
@@ -195,6 +196,11 @@ func New(dataBaseURL string) (*Repo, error) {
 
 
 		insertTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points, processed_at) VALUES($1,$2,$3,$4,$5,$6)") 
+		if err != nil {
+			return nil, err
+		}
+
+		insertAccrualTransaction, err = db.Prepare("INSERT INTO transactions (user_token, order_id, type, status, points) VALUES($1,$2,$3,$4,$5)") 
 		if err != nil {
 			return nil, err
 		}
@@ -440,9 +446,9 @@ func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string
     }
     defer tx.Rollback()
 
-    txStmt := tx.StmtContext(ctx, insertTransaction)
+    txStmt := tx.StmtContext(ctx, insertAccrualTransaction)
     
-    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0, "NULL"); err != nil {
+    if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0); err != nil {
         return err
     }
     
