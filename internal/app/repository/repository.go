@@ -443,6 +443,7 @@ func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string
     txStmt := tx.StmtContext(ctx, insertTransaction)
     
     if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0, "NULL"); err != nil {
+    	log.Ptint(err.Error())
         return err
     }
     
