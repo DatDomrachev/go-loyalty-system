@@ -422,7 +422,6 @@ func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.Wo
 
 func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID string, userToken string, endpoint string) (interface{}, error) {
 	
-	var processingOrder repository.ProcessingOrder
 
 	url := endpoint+"/api/orders/"+orderID
 	
@@ -432,7 +431,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     if err != nil {
         log.Printf("Can't prepare request to accrual %v\n", err)
         return nil, &BadResponse{
-    		Message: "Can't prepare request to accrual"+ orderID,
+    		Message: "Unable to prepare request to accrual "+ orderID,
     	}
     }
 
@@ -441,7 +440,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     if err != nil {
         log.Printf("Can't do request to accrual %v\n", err)
         return nil, &BadResponse{
-    		Message: "Unable to do request to accrual"+ orderID,
+    		Message: "Unable to do request to accrual "+ orderID,
     	}
     }
 
@@ -459,9 +458,16 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     	}
     }
 
+    var processingOrder repository.ProcessingOrder
+    body, err := ioutil.ReadAll(res.Body)
+    log.Printf(string(body));
+
+    if err != nil {
+    	defer res.Body.Close()
+    	return nil, err
+    }
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
-    	defer res.Body.Close()
 		return nil, &BadResponse{
     		Message: "Unable to read response on order "+ orderID,
     	}
