@@ -19,7 +19,6 @@ import (
 )
 
 type JobData struct {
-	Repo 	repository.Repositorier
 	OrderID string
 	AccrualURL string
 	UserToken string
@@ -312,11 +311,11 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 
 			
 		w.WriteHeader(http.StatusAccepted)
-		go ProcessOrder(repo, wp, AccrualURL, userToken, number)
+		go ProcessOrder(r.Context(), repo, wp, AccrualURL, userToken, number)
 	}
 }
 		
-func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, OrderID string) {
+func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.WorkerPooler, accrualURL string, userToken string, OrderID string) {
 		 
 	execFn := func(ctx context.Context, args interface{}) (interface{}, error) {		
 		argVal, ok := args.(JobData)
@@ -327,8 +326,29 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 			}
 		}
 
-		return CheckOrder(ctx, argVal.Repo, argVal.OrderID, argVal.UserToken, argVal.AccrualURL)
+		return CheckOrder(ctx, repo, argVal.OrderID, argVal.UserToken, argVal.AccrualURL)
 	}
+
+	t := time.Now().Unix()
+
+	job := wpool.Job {
+		Descriptor: wpool.JobDescriptor{
+			ID:       wpool.JobID(fmt.Sprintf("%v_%v", OrderID, t)),
+			JType:    "PROCESSING",
+			Metadata: nil,
+		},
+		ExecFn: execFn,
+		Args:   JobData{
+			OrderID:   OrderID,
+			UserToken: userToken,
+			AccrualURL: accrualURL,
+		},
+	}
+
+	go wp.GenerateFrom(job)
+
+
+
 
 	for {
 		select {
@@ -340,30 +360,29 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 			err := r.Err
 			if err != nil {
 				log.Print(err)
-				//go wp.BroadcastDone(true)
+				go wp.BroadcastDone(true)
 				break
 
 			} else {
 				val := r.Value.(repository.ProcessingOrder)
 				log.Print(val.Status)
 				if val.Status == "PROCESSED" {
-					//go wp.BroadcastDone(true)
+					go wp.BroadcastDone(true)
 					break
 				}	
 			}		
 
 
-			time := time.Now().Unix()
+			t = time.Now().Unix()
 
-			job := wpool.Job {
+			job = wpool.Job {
 				Descriptor: wpool.JobDescriptor{
-					ID:       wpool.JobID(fmt.Sprintf("%v_%v", OrderID, time)),
+					ID:       wpool.JobID(fmt.Sprintf("%v_%v", OrderID, t)),
 					JType:    "PROCESSING",
 					Metadata: nil,
 				},
 				ExecFn: execFn,
 				Args:   JobData{
-					Repo: repo,
 					OrderID:   OrderID,
 					UserToken: userToken,
 					AccrualURL: accrualURL,
@@ -375,8 +394,8 @@ func ProcessOrder(repo repository.Repositorier, wp wpool.WorkerPooler, accrualUR
 		case <-wp.Done():
 			log.Print("done")
 			return
-		// default:
-		// 	log.Print("waiting")
+		default:
+		 	//log.Print("waiting")
 		} 
 	
 	}
@@ -401,7 +420,6 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
     res, err := http.DefaultClient.Do(req)
     
     if err != nil {
-    	defer res.Body.Close()
         log.Printf("%v\n", err)
         return nil, err
     }
@@ -423,6 +441,7 @@ func CheckOrder	(ctx context.Context, repo repository.Repositorier, orderID stri
 
 
     if err := json.NewDecoder(res.Body).Decode(&processingOrder); err != nil {
+    	defer res.Body.Close()
 		log.Printf("%v\n", err)
 		return nil, err
 	}
