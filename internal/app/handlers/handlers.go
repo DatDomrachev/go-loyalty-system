@@ -307,7 +307,12 @@ func OrderHandler(repo repository.Repositorier, wp wpool.WorkerPooler, AccrualUR
 			}
 		}
 
-			
+		err = repo.CreateOrder(r.Context(), number, userToken)
+		
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.WriteHeader(http.StatusAccepted)
 		go ProcessOrder(r.Context(), repo, wp, AccrualURL, userToken, number)
 	}
@@ -364,7 +369,7 @@ func ProcessOrder(ctx context.Context, repo repository.Repositorier, wp wpool.Wo
 			} else {
 				val := r.Value.(repository.ProcessingOrder)
 				log.Print(val.Status)
-				if val.Status == "PROCESSED" {
+				if val.Status == "PROCESSED" || val.Status == "INVALID" {
 					go wp.BroadcastDone(true)
 					break
 				}	

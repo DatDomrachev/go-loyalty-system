@@ -443,7 +443,6 @@ func (r *Repo) CreateOrder(ctx context.Context, orderID string, userToken string
     txStmt := tx.StmtContext(ctx, insertTransaction)
     
     if _, err = txStmt.ExecContext(ctx, userToken, orderID, TypeAccrual, StatusNew, 0.0, "NULL"); err != nil {
-    	log.Ptint(err.Error())
         return err
     }
     
@@ -456,7 +455,7 @@ func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, a
 	statusKey := firstKeyByValue(m, status)
 	
 	if(statusKey == 0) {
-		r.CreateOrder(ctx, orderID, userToken)
+		//r.CreateOrder(ctx, orderID, userToken)
 		return nil
 	}
 
