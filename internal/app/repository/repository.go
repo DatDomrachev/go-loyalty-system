@@ -338,7 +338,7 @@ func (r *Repo) GetOrders(ctx context.Context, userToken string) ([]Accrual, erro
 			item.Accrual = itemRaw.Accrual
 		}
 
-		item.UploadedAt = itemRaw.UploadedAt
+		item.UploadedAt = carbon.Parse(itemRaw.UploadedAt).ToRfc3339String()
 
 		myAccruals = append(myAccruals, item)
 	}

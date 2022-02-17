@@ -2,14 +2,10 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"crypto/md5"
-	"encoding/hex"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/config"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/repository"
 	"github.com/DatDomrachev/go-loyalty-system/internal/app/wpool"
-	"github.com/DatDomrachev/go-loyalty-system/internal/app/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/ShiraazMoollatjie/goluhn"
@@ -21,9 +17,10 @@ import (
 	"runtime"
 	"time"
 	"fmt"
+	"github.com/golang-module/carbon/v2"
 )
 
-func testRequest(t *testing.T, config *config.Config, repo *repository.Repo, wp *wpool.WorkerPool, method, path, body, token string) (*http.Response, string) {
+func testRequest(t *testing.T, config *config.Config, repo *repository.Repo, wp *wpool.WorkerPool, method, path, body, token string, textFlag bool) (*http.Response, string, []*http.Cookie) {
 
 	request := httptest.NewRequest(method, path, nil)
 
@@ -35,6 +32,9 @@ func testRequest(t *testing.T, config *config.Config, repo *repository.Repo, wp 
 
 	
 	w := httptest.NewRecorder()
+	if textFlag {
+		request.Header.Set("Content-type", "text/plain")
+	}
 
 	if method == "POST" && path == "/api/user/register" {
 		RegisterHandler(repo)(w, request)
@@ -48,14 +48,30 @@ func testRequest(t *testing.T, config *config.Config, repo *repository.Repo, wp 
 		OrderHandler(repo, wp, "", token)(w, request)
 	}
 
+	if method == "GET" && path == "/api/user/balance" {
+		GetBalanceHandler(repo, token)(w, request)
+	}
 
+	if method == "POST" && path == "/api/user/balance/withdraw" {
+		WithdrawHandler(repo, token)(w, request)
+	}
+
+	if method == "GET" && path == "/api/user/orders" {
+		OrderListHandler(repo, token)(w, request)
+	}
+
+	if method == "GET" && path == "/api/user/balance/withdrawals" {
+		WithdrawListHandler(repo, token)(w, request)
+	}
+
+	cookies := w.Result().Cookies()
 	result := w.Result()
 
 	respBody, err := ioutil.ReadAll(result.Body)
 	require.NoError(t, err)
 
 	defer result.Body.Close()
-	return result, string(respBody)
+	return result, string(respBody), cookies
 
 }
 
@@ -77,87 +93,154 @@ func TestRouter(t *testing.T) {
 
 	wp := wpool.New(workersCounter)
 
-	now := time.Now().Unix()
-
+	timeUnix := time.Now().Unix()
 	
+	login := fmt.Sprintf("test_%v", timeUnix)
+
 	//рега
-	newQuery := repository.LoginData{Login: fmt.Sprintf("test_%v", now), Password: "test"}
+	newQuery := repository.LoginData{Login: login, Password: "test"}
 	inputBuf := bytes.NewBuffer([]byte{})
 	if err := json.NewEncoder(inputBuf).Encode(newQuery); err != nil {
 		log.Println(err.Error())
 		return
 	}
-	result, _ := testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "")	
+	result, _,_ := testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "", false)	
 	assert.Equal(t, 200, result.StatusCode)
 	defer result.Body.Close()
 
 
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "")	
+	result,_,_ = testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "", false)	
 	assert.Equal(t, http.StatusConflict, result.StatusCode)
 	defer result.Body.Close()
 
 	//логин
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/login", inputBuf.String(), "")	
+	result, _, cookies := testRequest(t, config, repo, wp, "POST", "/api/user/login", inputBuf.String(), "", false)	
 	assert.Equal(t, 200, result.StatusCode)
 	defer result.Body.Close()
 
-	password:= md5.Sum([]byte(newQuery.Password))
-	userID, err := repo.SaveUser(context.Background(), newQuery.Login, hex.EncodeToString(password[:]))
-	if err != nil {
-	  log.Fatalf("failed to catch userID:+%v", err)
-	}
+	token:= cookies[0].Value    
 
-	token := auth.GetToken(userID);
-
-	newQuery = repository.LoginData{Login: fmt.Sprintf("test_%v", now), Password: "wrong"}
+	newQuery = repository.LoginData{Login: login, Password: "wrong"}
 	inputBuf = bytes.NewBuffer([]byte{})
 	if err = json.NewEncoder(inputBuf).Encode(newQuery); err != nil {
 		log.Println(err.Error())
 		return
 	}
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/login", inputBuf.String(), "")	
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/login", inputBuf.String(), "", false)	
 	assert.Equal(t, http.StatusUnauthorized, result.StatusCode)
 	defer result.Body.Close()
 
 
 	//отправка заказа
 	n1 := goluhn.Generate(16)
+	n2 := goluhn.Generate(16)
 	
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/orders","1", token)	
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", "01", token, true)	
 	assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
 	defer result.Body.Close()
-	
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/orders",n1, token)	
+
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders",n1, token, true)	
 	assert.Equal(t, http.StatusAccepted, result.StatusCode)
 	defer result.Body.Close()
+	timeString1 := carbon.Time2Carbon(time.Now()).ToRfc3339String()
 
-	time.Sleep(10 * time.Second)
-
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/orders",n1, token)	
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", n1, token, true)	
 	assert.Equal(t, 200, result.StatusCode)
 	defer result.Body.Close()
 
 	//рега2
-	newQuery = repository.LoginData{Login: fmt.Sprintf("test__%v", now), Password: "test"}
+	login2 := fmt.Sprintf("test__%v", timeUnix)
+
+	newQuery = repository.LoginData{Login: login2, Password: "test"}
 	inputBuf = bytes.NewBuffer([]byte{})
 	if err = json.NewEncoder(inputBuf).Encode(newQuery); err != nil {
 		log.Println(err.Error())
 		return
 	}
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "")	
+	result, _,cookies = testRequest(t, config, repo, wp, "POST", "/api/user/register", inputBuf.String(), "", false)	
 	assert.Equal(t, 200, result.StatusCode)
 	defer result.Body.Close()
 
-	password= md5.Sum([]byte(newQuery.Password))
-	userID, err = repo.SaveUser(context.Background(), newQuery.Login, hex.EncodeToString(password[:]))
-	if err != nil {
-	  log.Fatalf("failed to catch userID second:+%v", err)
-	}
+	
+	token2:= cookies[0].Value 
 
-	token2 := auth.GetToken(userID);
-
-	result, _ = testRequest(t, config, repo, wp, "POST", "/api/user/orders",n1, token2)	
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", n1, token2, true)	
 	assert.Equal(t, http.StatusConflict, result.StatusCode)
 	defer result.Body.Close()
 
+
+	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", n2, token, true)	
+	assert.Equal(t, http.StatusAccepted, result.StatusCode)
+	defer result.Body.Close()
+	timeString2 := carbon.Time2Carbon(time.Now()).ToRfc3339String()
+
+	//баланс
+	newResult := repository.Balance{Current: 0, Withdrawn: 0}
+	outputBuf := bytes.NewBuffer([]byte{})
+	if err := json.NewEncoder(outputBuf).Encode(newResult); err != nil {
+		log.Println(err.Error())
+		return
+	}
+	result, body,_ := testRequest(t, config, repo, wp, "GET", "/api/user/balance", "", token, false)	
+	assert.Equal(t, 200, result.StatusCode)
+	assert.Equal(t, "application/json", result.Header.Get("Content-Type"))
+	assert.Equal(t, outputBuf.String(), body)
+	defer result.Body.Close()
+
+
+	//списание
+	newQueryW := repository.Withdraw{OrderID: "1", Points: 5}
+	inputBuf = bytes.NewBuffer([]byte{})
+	if err = json.NewEncoder(inputBuf).Encode(newQueryW); err != nil {
+		log.Println(err.Error())
+		return
+	}
+	result, _,cookies = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
+	assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
+	defer result.Body.Close()
+
+	newQueryW = repository.Withdraw{OrderID: n1, Points: 5}
+	inputBuf = bytes.NewBuffer([]byte{})
+	if err = json.NewEncoder(inputBuf).Encode(newQueryW); err != nil {
+		log.Println(err.Error())
+		return
+	}
+	result, _,cookies = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
+	assert.Equal(t, http.StatusPaymentRequired, result.StatusCode)
+	defer result.Body.Close()
+
+
+	//списания
+	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/balance/withdrawals", "", token, false)	
+	assert.Equal(t, http.StatusNoContent, result.StatusCode)
+	defer result.Body.Close()
+
+
+	//начисления
+	var accurals []repository.Accrual
+	
+	accural1 := repository.Accrual{OrderID: n1, Status: "NEW", Accrual:0, UploadedAt:timeString1}
+	accural2 := repository.Accrual{OrderID: n2, Status: "NEW", Accrual:0, UploadedAt:timeString2}
+
+	accurals = append(accurals, accural1)
+	accurals = append(accurals, accural2)
+
+	outputBuf = bytes.NewBuffer([]byte{})
+	if err := json.NewEncoder(outputBuf).Encode(accurals); err != nil {
+		log.Println(err.Error())
+		return
+	}
+	
+	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token, false)	
+	assert.Equal(t, 200, result.StatusCode)
+	assert.Equal(t, "application/json", result.Header.Get("Content-Type"))
+	assert.Equal(t, outputBuf.String(), body)
+	defer result.Body.Close()
+
+
+	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token2, false)	
+	assert.Equal(t, http.StatusNoContent, result.StatusCode)
+	defer result.Body.Close()
+
+	
 }
