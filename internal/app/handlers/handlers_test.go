@@ -195,7 +195,7 @@ func TestRouter(t *testing.T) {
 		log.Println(err.Error())
 		return
 	}
-	result, _,cookies = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
+	result,_,_ = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
 	assert.Equal(t, http.StatusUnprocessableEntity, result.StatusCode)
 	defer result.Body.Close()
 
@@ -205,13 +205,13 @@ func TestRouter(t *testing.T) {
 		log.Println(err.Error())
 		return
 	}
-	result, _,cookies = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
+	result,_,_ = testRequest(t, config, repo, wp, "POST", "/api/user/balance/withdraw", inputBuf.String(), token, false)	
 	assert.Equal(t, http.StatusPaymentRequired, result.StatusCode)
 	defer result.Body.Close()
 
 
 	//списания
-	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/balance/withdrawals", "", token, false)	
+	result,_,_ = testRequest(t, config, repo, wp, "GET", "/api/user/balance/withdrawals", "", token, false)	
 	assert.Equal(t, http.StatusNoContent, result.StatusCode)
 	defer result.Body.Close()
 
@@ -231,14 +231,14 @@ func TestRouter(t *testing.T) {
 		return
 	}
 	
-	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token, false)	
+	result, body,_ = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token, false)	
 	assert.Equal(t, 200, result.StatusCode)
 	assert.Equal(t, "application/json", result.Header.Get("Content-Type"))
 	assert.Equal(t, outputBuf.String(), body)
 	defer result.Body.Close()
 
 
-	result, body, cookies = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token2, false)	
+	result,_,_ = testRequest(t, config, repo, wp, "GET", "/api/user/orders", "", token2, false)	
 	assert.Equal(t, http.StatusNoContent, result.StatusCode)
 	defer result.Body.Close()
 
