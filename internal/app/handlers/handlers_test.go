@@ -142,7 +142,7 @@ func TestRouter(t *testing.T) {
 	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders",n1, token, true)	
 	assert.Equal(t, http.StatusAccepted, result.StatusCode)
 	defer result.Body.Close()
-	timeString1 := carbon.Time2Carbon(time.Now()).ToRfc3339String()
+	timeString1 := carbon.Now().ToRfc3339String()
 
 	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", n1, token, true)	
 	assert.Equal(t, 200, result.StatusCode)
@@ -172,7 +172,7 @@ func TestRouter(t *testing.T) {
 	result, _,_ = testRequest(t, config, repo, wp, "POST", "/api/user/orders", n2, token, true)	
 	assert.Equal(t, http.StatusAccepted, result.StatusCode)
 	defer result.Body.Close()
-	timeString2 := carbon.Time2Carbon(time.Now()).ToRfc3339String()
+	timeString2 := carbon.Now().ToRfc3339String()
 
 	//баланс
 	newResult := repository.Balance{Current: 0, Withdrawn: 0}

@@ -368,7 +368,7 @@ func (r *Repo) SaveWithdraw(ctx context.Context, orderID string, points float64,
 
 	newBalance := balance.Current - points
 	newWithdrawn := balance.Withdrawn + points
-	timeString := carbon.Time2Carbon(time.Now()).ToRfc3339String()
+	timeString := carbon.Now().ToRfc3339String()
 
 	tx, err := r.DB.conn.Begin()
 	if err != nil {
@@ -461,7 +461,7 @@ func (r *Repo) UpdateOrder(ctx context.Context, orderID string, status string, a
 	timeString := "NULL"
 
 	if statusKey == StatusProcessed {
-		timeString = carbon.Time2Carbon(time.Now()).ToRfc3339String()
+		timeString = carbon.Now().ToRfc3339String()
 	}
 
 	txStmt := tx.StmtContext(ctx, updateTransaction)
