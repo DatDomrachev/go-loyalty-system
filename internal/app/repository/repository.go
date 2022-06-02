@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgerrcode"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"log"
-	"time"
 )
 
 type Repositorier interface {
